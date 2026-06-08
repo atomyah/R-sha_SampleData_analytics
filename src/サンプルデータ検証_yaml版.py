@@ -21,6 +21,7 @@ OK / NG を自動判定する。
                         （源泉所得税は税額表の階級丸め等で数十円ずれ得るため）
   ・支払が NG のときは、本給／社保／社保控除後の内訳を出して原因を切り分ける
 """
+import os
 import sys
 import math
 import argparse
@@ -42,6 +43,18 @@ except ImportError:
 RATES = {}          # load_config() で埋める
 SETTINGS = {}       # 同上
 GENSEN = {}         # 年度 -> 源泉計算関数
+
+# ---------------------------------------------------------------------------
+# 端末出力の色付け（OK=緑 / NG=赤）。パイプ・リダイレクト時は色を付けない。
+# ---------------------------------------------------------------------------
+_GREEN, _RED, _RESET = "\033[32m", "\033[31m", "\033[0m"
+
+def _color(text, code):
+    return f"{code}{text}{_RESET}" if sys.stdout.isatty() else text
+
+def ok_ng(ok):
+    """ok が真なら緑の OK、偽なら赤の NG を返す。"""
+    return _color("OK", _GREEN) if ok else _color("NG", _RED)
 
 def load_config(path):
     """rates.yaml を読み、RATES / SETTINGS / GENSEN（モジュール全体で使う）を構築する。"""
@@ -239,7 +252,9 @@ def parse_overview(wb):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("excel")
-    ap.add_argument("--rates", default="rates.yaml", help="料率・税額表のYAMLファイル")
+    ap.add_argument("--rates",
+                    default=os.path.join(os.path.dirname(__file__), "rates.yaml"),
+                    help="料率・税額表のYAMLファイル（未指定ならスクリプトと同じディレクトリの rates.yaml）")
     ap.add_argument("--tax-year", type=int, default=2026)
     ap.add_argument("--round-unit", type=int, default=None, help="実働時間の切捨て単位（分）。未指定ならYAMLの値")
     ap.add_argument("--pay-tol", type=int, default=None, help="支払額の許容差（円）。未指定ならYAMLの値")
@@ -285,7 +300,7 @@ def main():
         if "bill" in tgt:
             ok = (bill_total == tgt["bill"])
             all_ok &= ok
-            print(f"  [請求] 計算={bill_total:,}円  目標={tgt['bill']:,}円  → {'OK' if ok else 'NG'}")
+            print(f"  [請求] 計算={bill_total:,}円  目標={tgt['bill']:,}円  → {ok_ng(ok)}")
         else:
             print(f"  [請求] 計算={bill_total:,}円  （概要に目標値なし）")
 
@@ -307,7 +322,7 @@ def main():
                 ok = bestdiff <= pay_tol
                 all_ok &= ok
                 note = "" if ok else f"  差{shikyu - tval:+,}円"
-                print(f"    契約{cn} {str(r['name'])[:14]:<14} 計算={shikyu:>9,.0f}円  目標={tval:>9,}円 → {'OK' if ok else 'NG'}{note}")
+                print(f"    契約{cn} {str(r['name'])[:14]:<14} 計算={shikyu:>9,.0f}円  目標={tval:>9,}円 → {ok_ng(ok)}{note}")
             else:
                 print(f"    契約{cn} {str(r['name'])[:14]:<14} 計算={shikyu:>9,.0f}円  （対応する目標値なし）")
             if args.verbose or (best is not None and bestdiff > pay_tol):
@@ -319,7 +334,7 @@ def main():
             print("    ※ 値の集合は一致するが、概要シートの並び順が計算順と異なる（表示順の入替の可能性）")
 
     print("\n" + "=" * 78)
-    print(f"総合判定: {'すべて OK' if all_ok else 'NG あり（上記参照）'}")
+    print(f"総合判定: {_color('すべて OK', _GREEN) if all_ok else _color('NG あり（上記参照）', _RED)}")
     print("=" * 78)
     sys.exit(0 if all_ok else 1)
 
